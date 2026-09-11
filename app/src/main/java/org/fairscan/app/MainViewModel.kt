@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2025-2026 The FairScan authors
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -62,7 +62,6 @@ class MainViewModel(val imageRepository: ImageRepository, logger: Logger): ViewM
 
     private val _pages = MutableStateFlow<List<ScanPage>>(emptyList())
 
-
     init {
         viewModelScope.launch {
             val pages = imageRepository.pages()
@@ -100,7 +99,7 @@ class MainViewModel(val imageRepository: ImageRepository, logger: Logger): ViewM
             val page = pages.getOrNull(index)
             Pair(page, loadingId)
         }
-            .mapLatest { (page,loadingId) ->
+            .mapLatest { (page, loadingId) ->
                 page?.let {
                     val isLoading = (it.id == loadingId)
                     val canBeCropped = page.metadata != null
@@ -170,7 +169,7 @@ class MainViewModel(val imageRepository: ImageRepository, logger: Logger): ViewM
             }
 
             if (pages.isEmpty()) {
-                navigateTo(Screen.Main.Camera)
+                navigateTo(Screen.Main.Home)
                 _currentPageIndex.value = 0
             } else if (_currentPageIndex.value >= pages.size) {
                 _currentPageIndex.value = pages.size - 1
@@ -284,6 +283,5 @@ class MainViewModel(val imageRepository: ImageRepository, logger: Logger): ViewM
                 CropInitState.Ready(page.id, bitmap, quad)
             navigateTo(Screen.Main.EditImage)
         }
-
     }
 }

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2025-2026 The FairScan authors
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -51,6 +51,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Highlight
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -132,6 +133,7 @@ fun CameraScreen(
     onFinalizePressed: () -> Unit,
     cameraPermission: CameraPermissionState,
     onImportClicked: () -> Unit,
+    isCameraEnabled: Boolean = true,
 ) {
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     val document by viewModel.documentUiModel.collectAsStateWithLifecycle()
@@ -148,7 +150,9 @@ fun CameraScreen(
         }
     }
     LaunchedEffect(captureController.cameraControl, isTorchEnabled) {
-        captureController.cameraControl?.enableTorch(isTorchEnabled)
+        if (isCameraEnabled) {
+            captureController.cameraControl?.enableTorch(isTorchEnabled)
+        }
     }
 
     val captureState by cameraViewModel.captureState.collectAsStateWithLifecycle()
@@ -187,42 +191,45 @@ fun CameraScreen(
     }
 
     val onCapture = {
-        previewView?.bitmap?.let {
-            Log.i("FairScan", "Pressed <Capture>")
-            cameraViewModel.onCapturePressed(it)
-            captureController.takePicture(
-                onImageCaptured = { imageProxy, opticalMeasures ->
-                    cameraViewModel.onImageCaptured(imageProxy, opticalMeasures)
-                }
-            )
-        }?: Unit
+        if (isCameraEnabled) {
+            previewView?.bitmap?.let {
+                Log.i("FairScan", "Pressed <Capture>")
+                cameraViewModel.onCapturePressed(it)
+                captureController.takePicture(
+                    onImageCaptured = { imageProxy, opticalMeasures ->
+                        cameraViewModel.onImageCaptured(imageProxy, opticalMeasures)
+                    }
+                )
+            } ?: Unit
+        } else Unit
     }
     LaunchedEffect(Unit) {
         cameraViewModel.volumeKeyEvent.collect {
-            onCapture()
+            if (isCameraEnabled) onCapture()
         }
     }
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     CameraScreenScaffold(
         cameraPreview = {
-            CameraPreview(
-                onImageAnalyzed = {
-                    onImageAnalyzed(it)
-                    // Re-apply torch once the camera session is actually active (first analysis)
-                    if (!torchReapplied) {
-                        captureController.cameraControl?.enableTorch(isTorchEnabled)
-                        torchReapplied = true
-                    }
-                },
-                captureController = captureController,
-                onPreviewViewReady = { view ->
-                    previewView = view
-                    captureController.previewView = view
-                },
-                cameraPermission = cameraPermission,
-                onError = { message, throwable -> cameraViewModel.logError(message, throwable) }
-            )
+            if (isCameraEnabled) {
+                CameraPreview(
+                    onImageAnalyzed = {
+                        onImageAnalyzed(it)
+                        if (!torchReapplied) {
+                            captureController.cameraControl?.enableTorch(isTorchEnabled)
+                            torchReapplied = true
+                        }
+                    },
+                    captureController = captureController,
+                    onPreviewViewReady = { view ->
+                        previewView = view
+                        captureController.previewView = view
+                    },
+                    cameraPermission = cameraPermission,
+                    onError = { message, throwable -> cameraViewModel.logError(message, throwable) }
+                )
+            }
         },
         pageListState =
             CommonPageListState(
@@ -250,10 +257,11 @@ fun CameraScreen(
         },
         thumbnailCoords = thumbnailCoords,
         navigation = navigation,
-        captureController,
+        captureController = captureController,
         isCameraPermissionGranted = cameraPermission.isGranted,
         onRequestCameraPermission = { cameraPermission.request() },
         onImportClicked = onImportClicked,
+        isCameraEnabled = isCameraEnabled,
     )
 }
 
@@ -272,6 +280,7 @@ private fun CameraScreenScaffold(
     isCameraPermissionGranted: Boolean,
     onRequestCameraPermission: () -> Unit,
     onImportClicked: () -> Unit,
+    isCameraEnabled: Boolean = true,
 ) {
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
     LaunchedEffect(focusPoint) {
@@ -304,27 +313,41 @@ private fun CameraScreenScaffold(
             pageListState = pageListState,
             bottomBar = { Bar(cameraUiState.pageCount, onFinalizePressed, onImportClicked) }
         ) { modifier ->
-            if (cameraUiState.importState is ImportState.Selecting) {
-                // display nothing: photo picker is active
-            } else if (cameraUiState.importState is ImportState.Importing) {
-                ImportInProgress(cameraUiState.importState, modifier)
-            } else if (!isCameraPermissionGranted) {
-                CameraPermissionRationale(onRequestCameraPermission, modifier)
-            } else {
-                CameraPreviewBox(
-                    cameraPreview,
-                    cameraUiState,
-                    focusPoint,
-                    onCapture,
-                    onTorchSwitched,
-                    modifier.pointerInput(Unit) {
-                        detectTapGestures { offset ->
-                            focusPoint = offset
-                            captureController.tapToFocus(offset)
-                            onPageCountClick()
-                        }
+            when {
+                cameraUiState.importState is ImportState.Selecting -> {
+                    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+                }
+                cameraUiState.importState is ImportState.Importing -> {
+                    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                        ImportInProgress(cameraUiState.importState, Modifier.fillMaxSize())
                     }
-                )
+                }
+                !isCameraEnabled -> {
+                    // Only show document placeholders, bottom bar, and imported carousel
+                    ImportedDocumentPlaceholder(
+                        pageCount = cameraUiState.pageCount,
+                        modifier = modifier
+                    )
+                }
+                !isCameraPermissionGranted -> {
+                    CameraPermissionRationale(onRequestCameraPermission, modifier)
+                }
+                else -> {
+                    CameraPreviewBox(
+                        cameraPreview,
+                        cameraUiState,
+                        focusPoint,
+                        onCapture,
+                        onTorchSwitched,
+                        modifier.pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                focusPoint = offset
+                                captureController.tapToFocus(offset)
+                                onPageCountClick()
+                            }
+                        }
+                    )
+                }
             }
         }
         if (cameraUiState.captureState is CaptureState.CapturePreview) {
@@ -335,11 +358,49 @@ private fun CameraScreenScaffold(
 }
 
 @Composable
+fun ImportedDocumentPlaceholder(pageCount: Int, modifier: Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PhotoLibrary,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(64.dp)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = if (pageCount == 0) "Importing files..." else LocalResources.current.getQuantityString(
+                    R.plurals.importing_photos,
+                    pageCount,
+                    pageCount
+                ).replace("Importing", "Imported"),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = if (pageCount == 0) "Please wait while pages are processed" else "Tap a page thumbnail above to edit or checkmark to export",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 fun ImportInProgress(state: ImportState.Importing, modifier: Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f)),
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -352,7 +413,7 @@ fun ImportInProgress(state: ImportState.Importing, modifier: Modifier) {
                     state.total,
                     state.total
                 ),
-                color = Color.White
+                color = MaterialTheme.colorScheme.onBackground
             )
 
             Spacer(Modifier.height(16.dp))
@@ -727,6 +788,7 @@ private fun ScreenPreview(
             isCameraPermissionGranted = isCameraPermissionGranted,
             onRequestCameraPermission = {},
             onImportClicked = {},
+            isCameraEnabled = true,
         )
     }
 }

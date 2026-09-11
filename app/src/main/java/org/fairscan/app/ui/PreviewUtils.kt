@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2025-2026 The FairScan authors
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -25,7 +25,7 @@ import org.fairscan.app.ui.state.PageThumbnail
 import org.fairscan.imageprocessing.ColorMode
 
 fun dummyNavigation(): Navigation {
-    return Navigation({}, {}, {}, {}, {}, {}, {}, {}, {}, { -> true})
+    return Navigation({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, { -> true })
 }
 
 fun fakeDocument(pageIds: ImmutableList<String>, context: Context): DocumentUiModel {

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2025-2026 The FairScan authors
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -25,11 +25,13 @@ import android.content.pm.PackageManager.PERMISSION_GRANTED
 import android.net.Uri
 import android.os.Build.VERSION.SDK_INT
 import android.os.Build.VERSION_CODES.Q
+import android.os.Build.VERSION_CODES.TIRAMISU
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -39,6 +41,9 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
@@ -70,6 +75,7 @@ import org.fairscan.app.ui.screens.export.ExportEvent
 import org.fairscan.app.ui.screens.export.ExportResult
 import org.fairscan.app.ui.screens.export.ExportScreenWrapper
 import org.fairscan.app.ui.screens.export.ExportViewModel
+import org.fairscan.app.ui.screens.home.HomeScreen
 import org.fairscan.app.ui.screens.settings.OcrLanguagesScreen
 import org.fairscan.app.ui.screens.settings.SettingsScreen
 import org.fairscan.app.ui.screens.settings.SettingsUiState
@@ -138,6 +144,29 @@ class MainActivity : ComponentActivity() {
             CollectExportEvents(context, exportViewModel)
             CollectAboutEvents(context, aboutViewModel, imageRepository)
 
+            // Double back to exit tracker
+            var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
+            BackHandler(enabled = true) {
+                when (currentScreen) {
+                    is Screen.Main.Home -> {
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastBackPressTime < 2000L) {
+                            finish()
+                        } else {
+                            lastBackPressTime = currentTime
+                            showToast("Press back again to exit")
+                        }
+                    }
+                    is Screen.Main.ResumeScan -> {
+                        viewModel.navigateTo(Screen.Main.Home)
+                    }
+                    else -> {
+                        viewModel.navigateBack()
+                    }
+                }
+            }
+
             FairScanTheme {
                 val navigation = navigation(viewModel, launchMode)
                 val onExportClick = if (launchMode == LaunchMode.EXTERNAL_SCAN_TO_PDF) {
@@ -161,9 +190,17 @@ class MainActivity : ComponentActivity() {
                     navigation.toExportScreen
                 }
 
-                when (currentScreen) {
+                when (val screen = currentScreen) {
                     null -> {
-                        // waiting to load pages to get an initial screen
+                        // waiting to load
+                    }
+                    is Screen.Main.Home -> {
+                        HomeScreen(
+                            onStartScan = navigation.toCameraScreen,
+                            onImportFiles = { uris ->
+                                executeImportFlow(uris)
+                            }
+                        )
                     }
                     is Screen.Main.ResumeScan -> {
                         ResumeScanScreen(
@@ -178,7 +215,7 @@ class MainActivity : ComponentActivity() {
                     is Screen.Main.Camera -> {
                         val pickMultiple = rememberLauncherForActivityResult(
                             ActivityResultContracts.GetMultipleContents()) {
-                                uris -> cameraViewModel.importPhotos(uris)
+                                uris -> executeImportFlow(uris)
                             }
                         CameraScreen(
                             viewModel,
@@ -192,7 +229,8 @@ class MainActivity : ComponentActivity() {
                             onImportClicked = {
                                 cameraViewModel.onImportClicked()
                                 pickMultiple.launch("image/*")
-                            }
+                            },
+                            isCameraEnabled = screen.isCameraEnabled
                         )
                     }
                     is Screen.Main.EditImage -> {
@@ -232,7 +270,7 @@ class MainActivity : ComponentActivity() {
                             onCloseScan = {
                                 exportViewModel.resetFilename()
                                 viewModel.startNewDocument()
-                                viewModel.navigateTo(Screen.Main.Camera)
+                                viewModel.navigateTo(Screen.Main.Home)
                             }
                         )
                     }
@@ -271,6 +309,50 @@ class MainActivity : ComponentActivity() {
                             onCancelOcrDownload = settingsViewModel::cancelOcrDownload,
                         )
                     }
+                }
+            }
+        }
+
+        handleIncomingIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun executeImportFlow(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModel.navigateTo(Screen.Main.Camera(isCameraEnabled = false))
+        cameraViewModel.onImportClicked()
+        cameraViewModel.importPhotos(uris)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null) return
+
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val uri = if (SDK_INT >= TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+                if (uri != null) {
+                    executeImportFlow(listOf(uri))
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val uris = if (SDK_INT >= TIRAMISU) {
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                }
+                if (!uris.isNullOrEmpty()) {
+                    executeImportFlow(uris)
                 }
             }
         }
@@ -501,7 +583,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun navigation(viewModel: MainViewModel, launchMode: LaunchMode): Navigation = Navigation(
-        toCameraScreen = { viewModel.navigateTo(Screen.Main.Camera) },
+        toHomeScreen = { viewModel.navigateTo(Screen.Main.Home) },
+        toCameraScreen = { viewModel.navigateTo(Screen.Main.Camera(isCameraEnabled = true)) },
+        toImportScanScreen = { viewModel.navigateTo(Screen.Main.Camera(isCameraEnabled = false)) },
         toEditImageScreen = { viewModel.navigateTo(Screen.Main.EditImage) },
         toDocumentScreen = { viewModel.navigateTo(Screen.Main.Document()) },
         toExportScreen = { viewModel.navigateTo(Screen.Main.Export) },
@@ -523,7 +607,7 @@ class MainActivity : ComponentActivity() {
             }
         },
         shouldDisplayBackButton = {
-            viewModel.currentScreen.value !is Screen.Main.Camera
+            viewModel.currentScreen.value !is Screen.Main.Home
                     || launchMode == LaunchMode.EXTERNAL_SCAN_TO_PDF
         }
     )
@@ -531,7 +615,8 @@ class MainActivity : ComponentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
             keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (viewModel.currentScreen.value is Screen.Main.Camera) {
+            val screen = viewModel.currentScreen.value
+            if (screen is Screen.Main.Camera && screen.isCameraEnabled) {
                 cameraViewModel.onVolumeKeyPressed()
                 return true
             }

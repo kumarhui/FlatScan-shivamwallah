@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2025-2026 The FairScan authors
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -16,7 +16,8 @@ package org.fairscan.app.ui
 
 sealed class Screen {
     sealed class Main : Screen() {
-        object Camera : Main()
+        object Home : Main()
+        data class Camera(val isCameraEnabled: Boolean = true) : Main()
         object EditImage : Main()
         data class Document(val initialPage: Int = 0) : Main()
         object Export : Main()
@@ -31,7 +32,9 @@ sealed class Screen {
 }
 
 data class Navigation(
+    val toHomeScreen: () -> Unit,
     val toCameraScreen: () -> Unit,
+    val toImportScanScreen: () -> Unit,
     val toEditImageScreen: () -> Unit,
     val toDocumentScreen: () -> Unit,
     val toExportScreen: () -> Unit,
@@ -48,7 +51,7 @@ data class NavigationState private constructor(val stack: List<Screen>, val root
 
     companion object {
         fun initial(): NavigationState {
-            val root = Screen.Main.Camera
+            val root = Screen.Main.Home
             return NavigationState(listOf(root), root)
         }
     }
@@ -65,12 +68,13 @@ data class NavigationState private constructor(val stack: List<Screen>, val root
 
     fun navigateBack(): NavigationState {
         return when (current) {
-            root -> this // Back handled by system
-            is Screen.Main.ResumeScan -> this // Back handled by system
-            is Screen.Main.Camera -> this // Back handled by system
-            is Screen.Main.Document -> copy(stack = listOf(Screen.Main.Camera))
+            root -> this
+            is Screen.Main.Home -> this
+            is Screen.Main.ResumeScan -> copy(stack = listOf(Screen.Main.Home))
+            is Screen.Main.Camera -> copy(stack = listOf(Screen.Main.Home))
+            is Screen.Main.Document -> copy(stack = listOf(Screen.Main.Home))
             is Screen.Main.EditImage -> copy(stack = listOf(Screen.Main.Document()))
-            is Screen.Main.Export -> copy(stack = listOf(Screen.Main.Camera))
+            is Screen.Main.Export -> copy(stack = listOf(Screen.Main.Home))
             is Screen.Overlay -> copy(stack = stack.dropLast(1))
         }
     }
