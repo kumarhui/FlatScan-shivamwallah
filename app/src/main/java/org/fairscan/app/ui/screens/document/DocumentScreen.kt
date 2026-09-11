@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2025-2026 The FairScan authors
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -19,6 +19,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +61,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -120,7 +122,6 @@ fun DocumentScreen(
             document,
             onPageClick = { index -> onPageSelected(index) },
             onPageReorder = onPageReorder,
-            currentPageIndex = currentPageIndex,
             listState = listState,
             showPageNumbers = true,
         ),
@@ -129,12 +130,12 @@ fun DocumentScreen(
         },
     ) { modifier ->
         DocumentPreview(
-            uiState,
-            { showDeletePageDialog.value = true },
-            onRotateImage,
-            onToggleColorMode,
-            onCropClick,
-            modifier
+            uiState = uiState,
+            onDeleteImage = { showDeletePageDialog.value = true },
+            onRotateImage = onRotateImage,
+            onToggleColorMode = onToggleColorMode,
+            onCropClick = onCropClick,
+            modifier = modifier
         )
         if (showDeletePageDialog.value) {
             ConfirmationDialog(
@@ -157,12 +158,22 @@ private fun DocumentPreview(
 ) {
     val currentPageIndex = uiState.currentPageIndex
     val document = uiState.document
-    Column (
+
+    Box(
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .fillMaxSize()
+            .padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 16.dp)
     ) {
-        Box (
-            modifier = Modifier.fillMaxSize()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(24.dp))
+                .border(
+                    width = 2.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .background(Color.White)
         ) {
             val bitmap = uiState.currentPage?.bitmap
             val pageKey = uiState.currentPage?.key
@@ -174,9 +185,11 @@ private fun DocumentPreview(
                     )
                 }
 
-                Box(modifier = Modifier
-                    .fillMaxSize(0.92f)
-                    .align(Alignment.Center)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize(0.92f)
+                        .align(Alignment.Center)
+                ) {
                     Image(
                         bitmap = imageBitmap,
                         contentDescription = null,
@@ -197,13 +210,19 @@ private fun DocumentPreview(
                     CircularProgressIndicator()
                 }
             }
+
             EditButtons(
                 uiState,
                 onToggleColorMode,
                 onCropClick,
                 modifier = Modifier.align(Alignment.BottomStart)
             )
-            RotationButtons(onRotateImage, Modifier.align(Alignment.BottomCenter))
+
+            RotationButtons(
+                onRotateImage,
+                Modifier.align(Alignment.BottomCenter)
+            )
+
             SecondaryActionButton(
                 Icons.Outlined.Delete,
                 contentDescription = stringResource(R.string.delete_page),
@@ -212,7 +231,9 @@ private fun DocumentPreview(
                     .align(Alignment.BottomEnd)
                     .padding(8.dp)
             )
-            Text("${currentPageIndex + 1} / ${document.pageCount()}",
+
+            Text(
+                "${currentPageIndex + 1} / ${document.pageCount()}",
                 color = MaterialTheme.colorScheme.inverseOnSurface,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -232,10 +253,8 @@ fun RotationButtons(
     onRotateImage: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // RotateLeft on the left, RotateRight on the right: for both LTR and RTL languages
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(modifier = modifier.padding(8.dp)) {
-            // Using AutoMirrored icons would lead to an opposite rotation in RTL languages
             @Suppress("DEPRECATION")
             SecondaryActionButton(
                 icon = Icons.Default.RotateLeft,
@@ -347,9 +366,11 @@ private fun BottomBar(
         ) {
             Icon(Icons.Outlined.Add, contentDescription = null)
             Spacer(Modifier.width(4.dp))
-            Text(stringResource(R.string.add_page),
+            Text(
+                stringResource(R.string.add_page),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis)
+                overflow = TextOverflow.Ellipsis
+            )
         }
         MainActionButton(
             onClick = onExportClick,
@@ -373,14 +394,14 @@ fun DocumentScreenPreview() {
         )
         val key = PageViewKey("123", Rotation.R0, null, 0)
         DocumentScreen(
-            uiState = DocumentUiState(1, CurrentPageUiState(key,image, COLOR, true), document),
+            uiState = DocumentUiState(1, CurrentPageUiState(key, image, COLOR, true), document),
             navigation = dummyNavigation(),
             onExportClick = {},
             onDeleteImage = { },
             onRotateImage = { _ -> },
             onToggleColorMode = { },
             onCropClick = { },
-            onPageReorder = { _,_ -> },
+            onPageReorder = { _, _ -> },
             onPageSelected = { _ -> },
         )
     }

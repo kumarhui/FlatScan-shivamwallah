@@ -15,6 +15,7 @@
 package org.fairscan.app.ui.screens.camera
 
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.camera.view.PreviewView
@@ -49,14 +50,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -74,6 +82,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -114,6 +123,7 @@ import org.fairscan.app.ui.components.MyScaffold
 import org.fairscan.app.ui.components.pageCountText
 import org.fairscan.app.ui.dummyNavigation
 import org.fairscan.app.ui.fakeDocument
+import org.fairscan.app.ui.screens.idcard.IdCardPreviewDialog
 import org.fairscan.app.ui.theme.FairScanTheme
 import org.fairscan.imageprocessing.ColorMode
 import org.fairscan.imageprocessing.Point
@@ -142,6 +152,13 @@ fun CameraScreen(
     val isTorchEnabled by cameraViewModel.isTorchEnabled.collectAsStateWithLifecycle()
     var torchReapplied by remember { mutableStateOf(false) }
 
+    // Camera is OFF by default
+    var isCameraActive by remember { mutableStateOf(false) }
+
+    // ID Card Preview Dialog state
+    var showIdCardDialog by remember { mutableStateOf(false) }
+    var idCardBitmaps by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+
     val captureController = remember { CameraCaptureController() }
     DisposableEffect(Unit) {
         onDispose {
@@ -150,7 +167,7 @@ fun CameraScreen(
         }
     }
     LaunchedEffect(captureController.cameraControl, isTorchEnabled) {
-        if (isCameraEnabled) {
+        if (isCameraActive) {
             captureController.cameraControl?.enableTorch(isTorchEnabled)
         }
     }
@@ -158,6 +175,8 @@ fun CameraScreen(
     val captureState by cameraViewModel.captureState.collectAsStateWithLifecycle()
     if (captureState is CaptureState.CapturePreview) {
         LaunchedEffect(captureState) {
+            // Automatically turn off camera stream after capturing one picture
+            isCameraActive = false
             delay(CAPTURED_IMAGE_DISPLAY_DURATION)
             cameraViewModel.addProcessedImage()
         }
@@ -191,7 +210,7 @@ fun CameraScreen(
     }
 
     val onCapture = {
-        if (isCameraEnabled) {
+        if (isCameraActive) {
             previewView?.bitmap?.let {
                 Log.i("FairScan", "Pressed <Capture>")
                 cameraViewModel.onCapturePressed(it)
@@ -205,14 +224,14 @@ fun CameraScreen(
     }
     LaunchedEffect(Unit) {
         cameraViewModel.volumeKeyEvent.collect {
-            if (isCameraEnabled) onCapture()
+            if (isCameraActive) onCapture()
         }
     }
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     CameraScreenScaffold(
         cameraPreview = {
-            if (isCameraEnabled) {
+            if (isCameraActive) {
                 CameraPreview(
                     onImageAnalyzed = {
                         onImageAnalyzed(it)
@@ -261,8 +280,20 @@ fun CameraScreen(
         isCameraPermissionGranted = cameraPermission.isGranted,
         onRequestCameraPermission = { cameraPermission.request() },
         onImportClicked = onImportClicked,
-        isCameraEnabled = isCameraEnabled,
+        isCameraActive = isCameraActive,
+        onToggleCameraActive = { isCameraActive = !isCameraActive },
+        onIdCardClick = {
+            idCardBitmaps = document.pages.mapNotNull { it.thumbnail?.toBitmap() }
+            showIdCardDialog = true
+        }
     )
+
+    if (showIdCardDialog && idCardBitmaps.isNotEmpty()) {
+        IdCardPreviewDialog(
+            bitmaps = idCardBitmaps,
+            onDismiss = { showIdCardDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -280,7 +311,9 @@ private fun CameraScreenScaffold(
     isCameraPermissionGranted: Boolean,
     onRequestCameraPermission: () -> Unit,
     onImportClicked: () -> Unit,
-    isCameraEnabled: Boolean = true,
+    isCameraActive: Boolean,
+    onToggleCameraActive: () -> Unit,
+    onIdCardClick: () -> Unit,
 ) {
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
     LaunchedEffect(focusPoint) {
@@ -311,7 +344,14 @@ private fun CameraScreenScaffold(
         MyScaffold(
             navigation = navigation,
             pageListState = pageListState,
-            bottomBar = { Bar(cameraUiState.pageCount, onFinalizePressed, onImportClicked) }
+            bottomBar = {
+                Bar(
+                    pageCount = cameraUiState.pageCount,
+                    onFinalizePressed = onFinalizePressed,
+                    onImportClicked = onImportClicked,
+                    onIdCardClick = onIdCardClick
+                )
+            }
         ) { modifier ->
             when {
                 cameraUiState.importState is ImportState.Selecting -> {
@@ -322,10 +362,10 @@ private fun CameraScreenScaffold(
                         ImportInProgress(cameraUiState.importState, Modifier.fillMaxSize())
                     }
                 }
-                !isCameraEnabled -> {
-                    // Only show document placeholders, bottom bar, and imported carousel
-                    ImportedDocumentPlaceholder(
+                !isCameraActive -> {
+                    CameraOffPlaceholder(
                         pageCount = cameraUiState.pageCount,
+                        onTurnOnCamera = onToggleCameraActive,
                         modifier = modifier
                     )
                 }
@@ -334,12 +374,13 @@ private fun CameraScreenScaffold(
                 }
                 else -> {
                     CameraPreviewBox(
-                        cameraPreview,
-                        cameraUiState,
-                        focusPoint,
-                        onCapture,
-                        onTorchSwitched,
-                        modifier.pointerInput(Unit) {
+                        cameraPreview = cameraPreview,
+                        cameraUiState = cameraUiState,
+                        focusPoint = focusPoint,
+                        onCapture = onCapture,
+                        onTorchSwitched = onTorchSwitched,
+                        onTurnOffCamera = onToggleCameraActive,
+                        modifier = modifier.pointerInput(Unit) {
                             detectTapGestures { offset ->
                                 focusPoint = offset
                                 captureController.tapToFocus(offset)
@@ -350,6 +391,44 @@ private fun CameraScreenScaffold(
                 }
             }
         }
+        // Progress dialog shown while image is being processed after capture
+        if (cameraUiState.captureState is CaptureState.Capturing) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { /* Prevent accidental cancel during image processing */ },
+                properties = androidx.compose.ui.window.DialogProperties(
+                    dismissOnBackPress = false,
+                    dismissOnClickOutside = false
+                )
+            ) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(48.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 4.dp
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "Processing image...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        }
+
         if (cameraUiState.captureState is CaptureState.CapturePreview) {
             val page = cameraUiState.captureState.capturedPage.pageJpeg.toBitmap()
             CapturedImage(page.asImageBitmap(), thumbnailCoords)
@@ -358,39 +437,94 @@ private fun CameraScreenScaffold(
 }
 
 @Composable
-fun ImportedDocumentPlaceholder(pageCount: Int, modifier: Modifier) {
+fun CameraOffPlaceholder(
+    pageCount: Int,
+    onTurnOnCamera: () -> Unit,
+    modifier: Modifier,
+    selectedImageBitmap: Bitmap? = null
+) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
+            .padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 16.dp)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(24.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(24.dp))
+                .border(
+                    width = 2.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .background(if (selectedImageBitmap != null) Color.Black else MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.PhotoLibrary,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(64.dp)
+            if (selectedImageBitmap != null) {
+                Image(
+                    bitmap = selectedImageBitmap.asImageBitmap(),
+                    contentDescription = "Selected document preview",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(16.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                )
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Icon(
+                        imageVector = if (pageCount > 0) Icons.Default.PhotoLibrary else Icons.Default.VideocamOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(64.dp)
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Text(
+                        text = if (pageCount > 0) {
+                            LocalResources.current.getQuantityString(
+                                R.plurals.importing_photos,
+                                pageCount,
+                                pageCount
+                            ).replace("Importing", "Imported")
+                        } else {
+                            "Camera is Off"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        text = if (pageCount > 0) {
+                            "Select a thumbnail above to view or turn on camera"
+                        } else {
+                            "Turn on camera to scan physical documents"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // Floating Camera Toggle Button aligned at TopEnd matching Viewfinder
+        FilledIconButton(
+            onClick = onTurnOnCamera,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = Color.Black.copy(alpha = 0.6f),
+                contentColor = Color.White
             )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = if (pageCount == 0) "Importing files..." else LocalResources.current.getQuantityString(
-                    R.plurals.importing_photos,
-                    pageCount,
-                    pageCount
-                ).replace("Importing", "Imported"),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = if (pageCount == 0) "Please wait while pages are processed" else "Tap a page thumbnail above to edit or checkmark to export",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        ) {
+            Icon(Icons.Default.Videocam, contentDescription = "Turn on camera")
         }
     }
 }
@@ -439,29 +573,61 @@ private fun CameraPreviewBox(
     focusPoint: Offset?,
     onCapture: () -> Unit,
     onTorchSwitched: () -> Unit,
+    onTurnOffCamera: () -> Unit,
     modifier: Modifier,
 ) {
     Box(
         modifier = modifier
+            .fillMaxSize()
+            .padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 16.dp)
     ) {
-        CameraPreviewWithOverlay(
-            cameraPreview,
-            cameraUiState,
-            Modifier.align(Alignment.BottomCenter)
-        )
-        if (cameraUiState.isDebugMode) {
-            MessageBox(cameraUiState.liveAnalysisState.inferenceTime)
+        // Rounded Viewfinder Box
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(24.dp))
+                .border(2.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                .background(Color.Black)
+        ) {
+            CameraPreviewWithOverlay(
+                cameraPreview,
+                cameraUiState,
+                Modifier.fillMaxSize()
+            )
+            if (cameraUiState.isDebugMode) {
+                MessageBox(cameraUiState.liveAnalysisState.inferenceTime)
+            }
+            FocusOverlay(focusPoint)
         }
-        FocusOverlay(focusPoint)
+
+        // Floating Close Camera button
+        FilledIconButton(
+            onClick = onTurnOffCamera,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = Color.Black.copy(alpha = 0.6f),
+                contentColor = Color.White
+            )
+        ) {
+            Icon(Icons.Default.VideocamOff, contentDescription = "Turn off camera")
+        }
+
+        // Shutter Button anchored at bottom center
         CaptureButton(
             onClick = onCapture,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(16.dp)
+                .padding(bottom = 20.dp)
         )
+
+        // Flash/Torch button
         IconButton(
             onClick = onTorchSwitched,
-            modifier = Modifier.align(Alignment.BottomStart)
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(16.dp)
         ) {
             val torchEnabled = cameraUiState.isTorchEnabled
             Icon(
@@ -574,11 +740,7 @@ private fun CameraPreviewWithOverlay(
     }
 
     Box(
-        modifier = if (cameraUiState.isLandscape) {
-            modifier.fillMaxHeight().aspectRatio(4f / 3f)
-        } else {
-            modifier.fillMaxWidth().aspectRatio(3f / 4f)
-        }
+        modifier = modifier
     ) {
         cameraPreview()
         AnalysisOverlay(cameraUiState.liveAnalysisState, cameraUiState.isDebugMode)
@@ -646,6 +808,7 @@ private fun Bar(
     pageCount: Int,
     onFinalizePressed: () -> Unit,
     onImportClicked: () -> Unit,
+    onIdCardClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -666,12 +829,36 @@ private fun Bar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
         }
-        MainActionButton(
-            onClick = onFinalizePressed,
-            enabled = pageCount > 0,
-            text = pageCountText(pageCount),
-            icon = Icons.Default.Done,
-        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (pageCount > 0) {
+                FilledIconButton(
+                    onClick = onIdCardClick,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Badge,
+                        contentDescription = "ID Card on A4",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            MainActionButton(
+                onClick = onFinalizePressed,
+                enabled = pageCount > 0,
+                text = pageCountText(pageCount),
+                icon = Icons.Default.Done,
+            )
+        }
     }
 }
 
@@ -788,7 +975,9 @@ private fun ScreenPreview(
             isCameraPermissionGranted = isCameraPermissionGranted,
             onRequestCameraPermission = {},
             onImportClicked = {},
-            isCameraEnabled = true,
+            isCameraActive = false,
+            onToggleCameraActive = {},
+            onIdCardClick = {}
         )
     }
 }
@@ -798,3 +987,6 @@ private fun debugImage(imgName: String): Jpeg {
     val context = LocalContext.current
     return Jpeg(context.assets.open(imgName).readBytes())
 }
+
+
+

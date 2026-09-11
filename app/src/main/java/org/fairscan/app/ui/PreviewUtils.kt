@@ -25,7 +25,7 @@ import org.fairscan.app.ui.state.PageThumbnail
 import org.fairscan.imageprocessing.ColorMode
 
 fun dummyNavigation(): Navigation {
-    return Navigation({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, { -> true })
+    return Navigation({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, { -> true })
 }
 
 fun fakeDocument(pageIds: ImmutableList<String>, context: Context): DocumentUiModel {
@@ -37,3 +37,4 @@ fun fakeDocument(pageIds: ImmutableList<String>, context: Context): DocumentUiMo
 
 fun fakeImage(id: String, context: Context): Jpeg =
     Jpeg(context.assets.open("${id}.jpg").readBytes())
+

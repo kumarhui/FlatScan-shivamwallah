@@ -68,12 +68,7 @@ class MainViewModel(val imageRepository: ImageRepository, logger: Logger): ViewM
 
             _pages.value = pages
 
-            _navigationState.value =
-                if (pages.isEmpty()) {
-                    NavigationState.initial()
-                } else {
-                    NavigationState.initial().navigateTo(Screen.Main.ResumeScan)
-                }
+            _navigationState.value = NavigationState.initial()
         }
     }
 
@@ -169,7 +164,7 @@ class MainViewModel(val imageRepository: ImageRepository, logger: Logger): ViewM
             }
 
             if (pages.isEmpty()) {
-                navigateTo(Screen.Main.Home)
+                navigateTo(Screen.Main.Camera(isCameraEnabled = false))
                 _currentPageIndex.value = 0
             } else if (_currentPageIndex.value >= pages.size) {
                 _currentPageIndex.value = pages.size - 1
@@ -285,3 +280,5 @@ class MainViewModel(val imageRepository: ImageRepository, logger: Logger): ViewM
         }
     }
 }
+
+

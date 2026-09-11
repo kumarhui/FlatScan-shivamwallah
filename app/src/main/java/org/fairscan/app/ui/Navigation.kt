@@ -16,8 +16,7 @@ package org.fairscan.app.ui
 
 sealed class Screen {
     sealed class Main : Screen() {
-        object Home : Main()
-        data class Camera(val isCameraEnabled: Boolean = true) : Main()
+        data class Camera(val isCameraEnabled: Boolean = false) : Main()
         object EditImage : Main()
         data class Document(val initialPage: Int = 0) : Main()
         object Export : Main()
@@ -32,7 +31,6 @@ sealed class Screen {
 }
 
 data class Navigation(
-    val toHomeScreen: () -> Unit,
     val toCameraScreen: () -> Unit,
     val toImportScanScreen: () -> Unit,
     val toEditImageScreen: () -> Unit,
@@ -51,7 +49,7 @@ data class NavigationState private constructor(val stack: List<Screen>, val root
 
     companion object {
         fun initial(): NavigationState {
-            val root = Screen.Main.Home
+            val root = Screen.Main.Camera(isCameraEnabled = false)
             return NavigationState(listOf(root), root)
         }
     }
@@ -69,12 +67,11 @@ data class NavigationState private constructor(val stack: List<Screen>, val root
     fun navigateBack(): NavigationState {
         return when (current) {
             root -> this
-            is Screen.Main.Home -> this
-            is Screen.Main.ResumeScan -> copy(stack = listOf(Screen.Main.Home))
-            is Screen.Main.Camera -> copy(stack = listOf(Screen.Main.Home))
-            is Screen.Main.Document -> copy(stack = listOf(Screen.Main.Home))
+            is Screen.Main.Camera -> this
+            is Screen.Main.ResumeScan -> copy(stack = listOf(root))
+            is Screen.Main.Document -> copy(stack = listOf(root))
             is Screen.Main.EditImage -> copy(stack = listOf(Screen.Main.Document()))
-            is Screen.Main.Export -> copy(stack = listOf(Screen.Main.Home))
+            is Screen.Main.Export -> copy(stack = listOf(root))
             is Screen.Overlay -> copy(stack = stack.dropLast(1))
         }
     }

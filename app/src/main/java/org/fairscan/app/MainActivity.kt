@@ -75,7 +75,6 @@ import org.fairscan.app.ui.screens.export.ExportEvent
 import org.fairscan.app.ui.screens.export.ExportResult
 import org.fairscan.app.ui.screens.export.ExportScreenWrapper
 import org.fairscan.app.ui.screens.export.ExportViewModel
-import org.fairscan.app.ui.screens.home.HomeScreen
 import org.fairscan.app.ui.screens.settings.OcrLanguagesScreen
 import org.fairscan.app.ui.screens.settings.SettingsScreen
 import org.fairscan.app.ui.screens.settings.SettingsUiState
@@ -144,12 +143,11 @@ class MainActivity : ComponentActivity() {
             CollectExportEvents(context, exportViewModel)
             CollectAboutEvents(context, aboutViewModel, imageRepository)
 
-            // Double back to exit tracker
             var lastBackPressTime by remember { mutableLongStateOf(0L) }
 
             BackHandler(enabled = true) {
                 when (currentScreen) {
-                    is Screen.Main.Home -> {
+                    is Screen.Main.Camera -> {
                         val currentTime = System.currentTimeMillis()
                         if (currentTime - lastBackPressTime < 2000L) {
                             finish()
@@ -159,7 +157,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     is Screen.Main.ResumeScan -> {
-                        viewModel.navigateTo(Screen.Main.Home)
+                        viewModel.navigateTo(Screen.Main.Camera(isCameraEnabled = false))
                     }
                     else -> {
                         viewModel.navigateBack()
@@ -194,29 +192,10 @@ class MainActivity : ComponentActivity() {
                     null -> {
                         // waiting to load
                     }
-                    is Screen.Main.Home -> {
-                        HomeScreen(
-                            onStartScan = navigation.toCameraScreen,
-                            onImportFiles = { uris ->
-                                executeImportFlow(uris)
-                            }
-                        )
-                    }
-                    is Screen.Main.ResumeScan -> {
-                        ResumeScanScreen(
-                            currentDocument = documentUiState,
-                            onResumeScan = navigation.toCameraScreen,
-                            onStartNewScan = {
-                                viewModel.startNewDocument()
-                                navigation.toCameraScreen()
-                            }
-                        )
-                    }
                     is Screen.Main.Camera -> {
                         val pickMultiple = rememberLauncherForActivityResult(
-                            ActivityResultContracts.GetMultipleContents()) {
-                                uris -> executeImportFlow(uris)
-                            }
+                            ActivityResultContracts.GetMultipleContents()
+                        ) { uris -> executeImportFlow(uris) }
                         CameraScreen(
                             viewModel,
                             cameraViewModel,
@@ -233,6 +212,16 @@ class MainActivity : ComponentActivity() {
                             isCameraEnabled = screen.isCameraEnabled
                         )
                     }
+                    is Screen.Main.ResumeScan -> {
+                        ResumeScanScreen(
+                            currentDocument = documentUiState,
+                            onResumeScan = navigation.toCameraScreen,
+                            onStartNewScan = {
+                                viewModel.startNewDocument()
+                                navigation.toCameraScreen()
+                            }
+                        )
+                    }
                     is Screen.Main.EditImage -> {
                         CropScreen(
                             pageId = documentUiState.currentPage?.key?.pageId ?: "",
@@ -242,11 +231,11 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     is Screen.Main.Document -> {
-                        DocumentScreen (
+                        DocumentScreen(
                             uiState = documentUiState,
                             navigation = navigation,
                             onExportClick = onExportClick,
-                            onDeleteImage =  { viewModel.deleteCurrentPage() },
+                            onDeleteImage = { viewModel.deleteCurrentPage() },
                             onRotateImage = { clockwise -> viewModel.rotateCurrentPage(clockwise) },
                             onToggleColorMode = { viewModel.toggleCurrentPageColorMode() },
                             onCropClick = { viewModel.onClickOnCropButton() },
@@ -270,7 +259,7 @@ class MainActivity : ComponentActivity() {
                             onCloseScan = {
                                 exportViewModel.resetFilename()
                                 viewModel.startNewDocument()
-                                viewModel.navigateTo(Screen.Main.Home)
+                                viewModel.navigateTo(Screen.Main.Camera(isCameraEnabled = false))
                             }
                         )
                     }
@@ -583,7 +572,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun navigation(viewModel: MainViewModel, launchMode: LaunchMode): Navigation = Navigation(
-        toHomeScreen = { viewModel.navigateTo(Screen.Main.Home) },
         toCameraScreen = { viewModel.navigateTo(Screen.Main.Camera(isCameraEnabled = true)) },
         toImportScanScreen = { viewModel.navigateTo(Screen.Main.Camera(isCameraEnabled = false)) },
         toEditImageScreen = { viewModel.navigateTo(Screen.Main.EditImage) },
@@ -607,7 +595,7 @@ class MainActivity : ComponentActivity() {
             }
         },
         shouldDisplayBackButton = {
-            viewModel.currentScreen.value !is Screen.Main.Home
+            viewModel.currentScreen.value !is Screen.Main.Camera
                     || launchMode == LaunchMode.EXTERNAL_SCAN_TO_PDF
         }
     )
