@@ -1,3 +1,4 @@
+@'
 *.iml
 .gradle
 /local.properties
@@ -17,3 +18,4 @@
 .cxx
 local.properties
 *.tflite
+'@ | Out-File -FilePath .gitignore -Append -Encoding utf8
